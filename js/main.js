@@ -186,7 +186,9 @@ Leap.loop({enableGestures:true}, function(frame) {
 
 
         window.debugLine = new THREE.Geometry();
-        window.debugLine.vertices.push(new THREE.Vector3(window.rifle.position.x, window.rifle.position.y, window.rifle.position.z));
+
+
+        window.debugLine.vertices.push(new THREE.Vector3(window.rifle.position.x, window.rifle.position.y - 20, window.rifle.position.z - 20));
         window.debugLine.vertices.push(new THREE.Vector3(focalPoint.x, focalPoint.y, focalPoint.z));
 
         window.line = new THREE.Line(debugLine, material);
