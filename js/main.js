@@ -1,6 +1,9 @@
 var scene, camera, renderer;
 var geometry, material, mesh;
 
+var debugLine, line;
+
+var moveDir, currDir;
 
 init();
 animate();
@@ -12,28 +15,11 @@ function init() {
 
     window.scene.add(new THREE.AmbientLight(0x888888));
 
-    //var ambientLight = new THREE.AmbientLight(0xBBBBBB);
-    //window.scene.add(ambientLight);
-
-
-    /*
-    var pointLight = new THREE.PointLight(0xFFffff);
-    pointLight.position = new THREE.Vector3(-20, 10, 100);
-    pointLight.lookAt(new THREE.Vector3(0, 0, 0));
-    window.scene.add(pointLight);
-    */
-
-
-
     window.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 10000);
     window.camera.position.fromArray([0, 160, 400]);
     window.camera.lookAt(new THREE.Vector3(0, 0, 0));
 
     window.scene.add(camera);
-
-    geometry = new THREE.BoxGeometry( 200, 200, 200 );
-    material = new THREE.MeshBasicMaterial( { color: 0xff0000, wireframe: true } );
-
 
     window.renderer = new THREE.WebGLRenderer( {alpha: true} );
 
@@ -56,70 +42,28 @@ function init() {
     var onError = function ( xhr ) {
     };
 
-    // texture
-
-
-    var manager = new THREE.LoadingManager();
-    manager.onProgress = function ( item, loaded, total ) {
-        //Debug
-        console.log( item, loaded, total );
-    };
-
-    var texture = new THREE.Texture();
-
-
-
-    //Textures
-    var imageLoader = new THREE.ImageLoader( manager );
-    imageLoader.load( 'obj/RifleObj/M1Rifle.jpg', function ( image ) {
-
-        texture.image = image;
-        texture.needsUpdate = true;
-
-    } );
-
     // model
 
     window.rifle = {};
-
-    //THREE.Loader.Handlers.add( /\.dds$/i, new THREE.DDSLoader() );
 
     var loader = new THREE.OBJMTLLoader();
     loader.load( 'obj/m16.obj', 'obj/m16.mtl', function ( object ) {
 
         window.rifle = object; //Make this globally available so we can get it in the right position
-        object.position.y = 0;
+
+        //Init position
+        object.position.x = 0;
+        object.position.y = 110;
+        object.position.z = 350;
+
+        //Orient barrel outward
+        object.rotation.y = -1.55;
+
         scene.add( object );
         console.log("Added m16.obj: "  + window.rifle);
 
     }, onProgress, onError );
 
-    /*
-    var objLoader = new THREE.OBJLoader( manager );
-    objLoader.load( 'obj/RifleObj/RifleObj.obj', function ( object ) {
-
-        object.traverse( function ( child ) {
-
-            if ( child instanceof THREE.Mesh ) {
-
-                child.material.map = texture;
-
-            }
-
-        } );
-
-        object.position.z = 250;
-
-        // My initial model was too small, so I scaled it upwards.
-        object.scale = new THREE.Vector3( 25, 25, 25 );
-
-        window.rifle = object; //Make this globally available so we can get it in the right position
-
-        window.scene.add( object );
-
-    }, onProgress, onError );
-
-    */
 
     window.addEventListener('resize', function () {
 
@@ -130,40 +74,130 @@ function init() {
 
     }, false);
 
+    //Debug lines
+    material = new THREE.LineBasicMaterial({
+        color: 0x0000ff
+    });
 
     document.body.appendChild( renderer.domElement );
+
+    window.currDir = new THREE.Vector3(0, 0, -1);
+
 
 }
 
 function animate() {
 
+    requestAnimationFrame( animate );
     window.camera.lookAt(window.scene.position);
-    
+    renderer.render(window.scene, window.camera);
 
 }
 
+function update(frame) {
 
-Leap.loop({enableGestures:true}, function(frame) {
-    //console.log(frame);
-})
+    if (frame.fingers.length != 0) {
 
-    // note that transform must be _before_ rigged hand
-    .use('transform', {
-        quaternion: new THREE.Quaternion,
-        position: new THREE.Vector3,
-        scale: 0.3
-    })
-    .use('playback', {recording: 'finger-tap-54fps.json.lz'})
-    .use('riggedHand', {
-        dotsMode: false,
-        parent: window.scene,
-        renderFn: function(){
-            animate()
-            renderer.render(window.scene, window.camera);
+        window.moveDir = new THREE.Vector3(frame.fingers[1].direction[0],
+            frame.fingers[1].direction[1],
+            frame.fingers[1].direction[2]);
+
+        if (moveDir != undefined) {
+
+            moveDir.multiplyScalar(300);
+
+            if (moveDir.x <= -160) {
+                moveDir.x = -160;
+            }
+            else if (moveDir.x >= 160) {
+                moveDir.x = 160;
+            }
+
+            if (moveDir.y <= -120) {
+                moveDir.y = -120;
+            }
+            else if (moveDir.y >= 60) {
+                moveDir.y = 60;
+            }
+
+            moveDir.z = -260;
+
         }
 
-    })
+        currDir.lerp(moveDir, 0.1);
+    }
+}
 
-    .connect();
+function getCosAngles(dir)
+{
+    var alpha = Math.acos((dir.x) / dir.length());
+    var beta =  Math.acos((dir.y) / dir.length());
+    var gamma = Math.acos((dir.z) / dir.length());
 
-//window.transformPlugin = Leap.loopController.plugins.transform;
+    return {
+        alpha: alpha,
+        beta: beta,
+        gamma: gamma
+    }
+}
+
+function getVecFromAngles(alpha, beta, gamma)
+{
+    var x = Math.cos(angToRad(alpha));
+    var y =  Math.sin(angToRad(beta));
+    var z = Math.cos(angToRad(gamma));
+
+    var orig = new THREE.Vector3(x, y, z);
+    return orig;
+}
+
+function radToAng(rad)
+{
+    return (rad * (180/ Math.PI));
+}
+
+function angToRad(ang)
+{
+    return (ang * (Math.PI / 180));
+}
+
+Leap.loop({enableGestures:true}, function(frame) {
+    window.lastFrame = frame;
+
+    if (frame.fingers.length != 0 && window.rifle != undefined) {
+        console.log(frame.fingers[1].direction)
+
+        update(frame);
+
+        console.log("Direction Vector: ", currDir.x, currDir.y, currDir.z);
+
+        window.rifle.position.x = 0;
+        window.rifle.position.y = 110;
+        window.rifle.position.z = 350;
+
+
+
+                //create a point to lookAt
+        var focalPoint = new THREE.Vector3(
+                    currDir.x + window.rifle.position.x,
+                    currDir.y + window.rifle.position.y,
+                    currDir.z + window.rifle.position.z
+            );
+
+
+        window.debugLine = new THREE.Geometry();
+        window.debugLine.vertices.push(new THREE.Vector3(window.rifle.position.x, window.rifle.position.y, window.rifle.position.z));
+        window.debugLine.vertices.push(new THREE.Vector3(focalPoint.x, focalPoint.y, focalPoint.z));
+
+        window.line = new THREE.Line(debugLine, material);
+
+        window.scene.add(line);
+
+        window.rifle.lookAt(focalPoint);
+        window.rifle.rotation.y -= Math.PI /2;
+        window.rifle.rotation.z = Math.PI;
+
+    }
+}).connect();
+
+
