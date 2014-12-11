@@ -1,9 +1,17 @@
 var scene, camera, renderer;
-var geometry, material, mesh;
+var geometry, moveMaterial, focalMaterial, mesh;
 
-var debugLine, line;
+var debugGeo, moveGeo, focalLine, moveLine;
 
 var moveDir, currDir;
+
+var bullets = [];
+var sphereMaterial;
+var sphereGeo;
+
+var debugCounter = 0;
+
+var speed = 25;
 
 init();
 animate();
@@ -11,7 +19,6 @@ animate();
 function init() {
 
     window.scene = new THREE.Scene();
-
 
     window.scene.add(new THREE.AmbientLight(0x888888));
 
@@ -46,6 +53,12 @@ function init() {
 
     window.rifle = {};
 
+    //Setup bullets
+    sphereMaterial = new THREE.MeshBasicMaterial({color: 0xD4AF37})
+
+    sphereGeo = new THREE.SphereGeometry(2, 3, 3);
+
+
     var loader = new THREE.OBJMTLLoader();
     loader.load( 'obj/m16.obj', 'obj/m16.mtl', function ( object ) {
 
@@ -75,14 +88,20 @@ function init() {
     }, false);
 
     //Debug lines
-    material = new THREE.LineBasicMaterial({
+    focalMaterial = new THREE.LineBasicMaterial({
         color: 0x0000ff
     });
+
+    //Debug lines
+    moveMaterial = new THREE.LineBasicMaterial({
+        color: 0x00ffff
+    });
+
+
 
     document.body.appendChild( renderer.domElement );
 
     window.currDir = new THREE.Vector3(0, 0, -1);
-
 
 }
 
@@ -124,9 +143,52 @@ function update(frame) {
 
         }
 
-        currDir.lerp(moveDir, 0.1);
+        currDir.lerp(moveDir, 0.5);
+    }
+
+
+    //Check bullet collision
+    for (var i = bullets.length-1; i >= 0; i--) {
+        var b = bullets[i], p = b.position, d = b.ray.direction;
+        if (checkCollision(p)) {
+            bullets.splice(i, 1);
+            scene.remove(b);
+            continue;
+        }
+        else
+        {
+            //No hit, so update speed
+            b.translateX(speed * d.x);
+            b.translateY(speed * d.y);
+            b.translateZ(speed * d.z);
+        }
     }
 }
+
+function checkCollision(p)
+{
+    if (p.z < -500) {
+        return true;
+    }
+}
+
+
+function createBullet(rifle, dir) {
+
+    var sphere = new THREE.Mesh( sphereGeo, sphereMaterial);
+
+    sphere.position.set(rifle.position.x, rifle.position.y, rifle.position.z);
+
+    sphere.ray = new THREE.Ray(sphere.position, dir.normalize());
+
+    sphere.owner = rifle;
+
+    bullets.push(sphere);
+    scene.add(sphere);
+
+    return sphere;
+}
+
 
 function getCosAngles(dir)
 {
@@ -162,6 +224,10 @@ function angToRad(ang)
 }
 
 Leap.loop({enableGestures:true}, function(frame) {
+
+
+
+
     window.lastFrame = frame;
 
     if (frame.fingers.length != 0 && window.rifle != undefined) {
@@ -185,19 +251,78 @@ Leap.loop({enableGestures:true}, function(frame) {
             );
 
 
-        window.debugLine = new THREE.Geometry();
+        //create a point to lookAt
+        var movePoint = new THREE.Vector3(
+                moveDir.x + window.rifle.position.x,
+                moveDir.y + window.rifle.position.y,
+                moveDir.z + window.rifle.position.z
+        );
+
+        //Erase the old geometry for the line if it was initialized
+        if (window.debugGeo != null)
+        {
+            delete window.debugGeo;
+        }
+
+        if (window.moveGeo != null)
+        {
+            delete window.moveGeo;
+        }
+
+        //Erase the old line
+        if (window.focalLine != null)
+        {
+            window.scene.remove(window.focalLine)
+            delete window.focalLine;
+        }
+
+        if (window.moveLine != null)
+        {
+            window.scene.remove(window.moveLine)
+            delete window.moveLine;
+        }
 
 
-        window.debugLine.vertices.push(new THREE.Vector3(window.rifle.position.x, window.rifle.position.y - 20, window.rifle.position.z - 20));
-        window.debugLine.vertices.push(new THREE.Vector3(focalPoint.x, focalPoint.y, focalPoint.z));
+        //Initiate the debugLines to show where gun is pointed
+        window.debugGeo = new THREE.Geometry();
+        window.moveGeo = new THREE.Geometry();
 
-        window.line = new THREE.Line(debugLine, material);
+        //This is the line that is the gun interpolating towards the controller
+        window.moveGeo.vertices.push(new THREE.Vector3(window.rifle.position.x, window.rifle.position.y - 20, window.rifle.position.z - 20));
+        window.moveGeo.vertices.push(new THREE.Vector3(focalPoint.x, focalPoint.y, focalPoint.z));
 
-        window.scene.add(line);
+        //This is the line to show the most recent spot the leap controller is telling the gun to look at
+        window.debugGeo.vertices.push(new THREE.Vector3(window.rifle.position.x, window.rifle.position.y - 20, window.rifle.position.z - 20));
+        window.debugGeo.vertices.push(new THREE.Vector3(movePoint.x, movePoint.y, movePoint.z));
+
+
+        window.focalLine = new THREE.Line(debugGeo, focalMaterial);
+        window.moveLine = new THREE.Line(moveGeo, moveMaterial);
+
+        window.scene.add(focalLine);
+        window.scene.add(moveLine);
 
         window.rifle.lookAt(focalPoint);
+
+        //Correct for rifle models original orientation
         window.rifle.rotation.y -= Math.PI /2;
         window.rifle.rotation.z = Math.PI;
+
+        if (debugCounter == 50)
+        {
+            //Fire the gun
+            var a = new THREE.Vector3();
+            a.subVectors(focalPoint, window.rifle.position);
+
+            createBullet(window.rifle, a);
+        }
+        else if (debugCounter > 50)
+        {
+            debugCounter = 0;
+        }
+
+        debugCounter++;
+
 
     }
 }).connect();
